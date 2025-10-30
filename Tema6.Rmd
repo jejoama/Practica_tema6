@@ -1,0 +1,553 @@
+---
+title: "Tema 6. Análisis Exploratorio de Datos"
+subtitle: Análisis Exploratorio de Datos. Máster en Ciencia de Datos- UV
+author: "Marcelino Martínez / Juan Gómez"
+#date: "`r Sys.Date()`"
+output:
+  html_document: 
+    echo: yes
+    number_sections: yes
+    theme: lumen
+    toc: yes
+  pdf_document:
+    toc: yes
+params:
+  lang: ES
+lang: "`r switch(params$lang, ES = 'es-ES', EN = 'en-US')`"
+language:
+  label:
+    fig: 'Figura '
+    tab: 'Tabla '
+    eq: 'Ecuación '
+    thm: 'Teorema '
+    lem: 'Lema '
+    def: 'Definición '
+    cor: 'Corolario '
+    prp: 'Proposición '
+    exm: 'Ejemplo '
+    exr: 'Ejercicio '
+    proof: 'Demostración. '
+    remark: 'Nota: '
+    solution: 'Solución. '
+---
+
+
+
+```{r setup, cache = F, echo = F, message = F, warning = F, tidy = F}
+
+# CONFIGURACIÓN GENERAL
+library(knitr)
+options(width = 100)
+# Opciones generales chunks
+opts_chunk$set(echo=T,message = F, error = F, warning = F, comment = NA, fig.align = 'center', dpi = 100, tidy = F, cache.path = '.cache/', fig.path = './figure/')
+
+#options(xtable.type = 'html')
+knit_hooks$set(inline = function(x) {
+  
+  if(is.numeric(x)) {
+    round(x, getOption('digits'))
+  } else {
+    paste(as.character(x), collapse = ', ')
+  }
+})
+#knit_hooks$set(plot = knitr:::hook_plot_html)
+```
+
+
+
+# Usa `pacman` para cargar las librerías e instalarlas si no están disponibles
+
+```{r,echo=FALSE}
+
+library(pacman)
+
+p_load(MASS,knitr,tidyverse,dplyr,tidyr,car,ggmosaic,GGally,vcd,e1071,gmodels,GoodmanKruskal)
+
+```
+
+# Análisis univariante.
+Varios ejemplos han sido extraídos del libro R in action de Rober Kabacoff. Capítulo 7
+
+## Variables numéricas
+### Programación de una función para el cálculo. 
+
+
+```{r}
+
+mystats <- function(x, na.omit=FALSE){
+                if (na.omit)
+                    x <- x[!is.na(x)]
+                m <- mean(x)
+                n <- length(x)
+                s <- sd(x)
+                skew <- sum((x-m)^3/s^3)/n
+                kurt <- sum((x-m)^4/s^4)/n - 3
+                return(c(n=n, mean=m, stdev=s, skew=skew, kurtosis=kurt))
+} 
+
+myvars <- c("mpg", "hp", "wt")
+sapply(mtcars[myvars], mystats)
+```
+```{r}
+# Alternativa con tuberias
+Est<-mtcars%>%summarize(across(one_of(c("mpg", "hp", "wt")),mystats))
+rownames(Est)<-c('N','Mean','sd','skew','kurt')
+Est
+```
+
+###   Estadísticos básicos usando funciones dplyr/tidyr
+En la librería `e1071` están ya programadas las funciones que permiten determinar el sesgo `Skewness` y la curtosis `kurtosis`.
+
+```{r}
+library(e1071) # Skewness and kurtosis
+mtcars%>%dplyr::select(mpg,hp,wt)%>% 
+summarise_all(funs
+ (
+  mean(.,na.rm=TRUE),
+  length,
+  sd(.,na.rm=TRUE),
+  skewness(.,na.rm=TRUE),
+  kurtosis(.,na.rm=TRUE)
+  )
+) %T>%
+  print%>%
+  # Reordenamos todas las columnas
+  gather() %T>% # Por defecto key=key, value=value, con todas las columnas
+  print%>%
+  tidyr::separate(key,c("var","type"))%T>% # separate(col=key,  into=c("var","type"))
+  print%>%
+  spread(key=type,value=value)  
+
+# gather(key=estadistico,value=valor) %>% 
+#   separate(key=estadistico, into=valorc("var","type")) %>%
+#   spread(type, value)
+
+
+# Todas las columnas numéricas
+library(magrittr)
+library(kableExtra)
+mtcars%>% 
+summarise_if(is.numeric,funs
+ (
+  mean(.,na.rm=TRUE),
+  length,
+  sd(.,na.rm=TRUE),
+  skewness(.,na.rm=TRUE),
+  kurtosis(.,na.rm=TRUE)
+  )
+) %T>%
+  print%>%
+  # Reordenamos todas las columnas
+  gather() %T>% # Por defecto key=key, value=value, con todas las columnas
+  print%>%
+  tidyr::separate(key,c("var","type"))%T>% # separate(col=key,  into=c("var","type"))
+  print%>%
+  spread(key=type,value=value)%>%
+  dplyr::select(var,mean,sd,skewness,kurtosis)%>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+# gather(key=estadistico,value=valor) %>% 
+#   separate(key=estadistico, into=valorc("var","type")) %>%
+#   spread(type, value)
+
+```
+Usando las últimas recomendaciones de tidyverse
+    Before:
+    funs(name = f(.))
+    After:
+    list(name = ~f(.))
+
+```{r}
+mtcars%>%dplyr::select(mpg,hp,wt)%>% 
+summarise(across(everything(),list(
+  mean=~mean(.,na.rm=TRUE),
+  length=~length(.),
+  sd=~sd(.,na.rm=TRUE),
+  skewness=~skewness(.,na.rm=TRUE),
+  kurtosis=~kurtosis(.,na.rm=TRUE)
+  ))) %T>%
+  print%>%
+  round(.,digits=2)%>%
+  # Reordenamos todas las columnas
+  gather() %T>% # Por defecto key=key, value=value, con todas las columnas
+  print%>%
+  tidyr::separate(col=key,c("var","type"))%T>% # separate(col=key,  into=c("var","type"))
+  print%>%
+  spread(key=type,value=value)  
+
+# gather(key=estadistico,value=valor) %>% 
+#   separate(key=estadistico, into=valorc("var","type")) %>%
+#   spread(type, value)
+
+
+```
+
+
+## Estadísticos básicos variables categóricas.
+### Usando table
+
+```{r}
+table(iris$Species)
+table(mtcars$cyl)
+table(mtcars$cyl,mtcars$vs)
+        
+
+```
+### Usando xtable
+
+```{r}
+tabla<-xtabs(~ cyl, data=mtcars)
+print(tabla)
+
+tabla<-xtabs(~ cyl+vs, data=mtcars)
+print(tabla)
+
+```
+### Usando xtable y opciones
+`prob.table`: proporciones.
+`margin.table`: marginales.
+
+```{r}
+tabla<-xtabs(~ cyl+vs, data=mtcars)
+
+prop.table(tabla)
+
+margin.table(tabla,1)
+margin.table(tabla,2)
+margin.table(tabla)
+addmargins(tabla)
+addmargins(prop.table(tabla))
+
+```
+### Usando CrossTable de la librería gmodels
+
+```{r}
+library(gmodels)
+CrossTable(mtcars$cyl,mtcars$vs)
+
+```
+# Análisis bivariante
+Libro. R. Kabacoff (pág 152)
+Gráficos de mosaico, librerías `vcd` y tambien `ggmosaic` que sigue la filosofía de `ggplot`.[ggmosaic](https://cran.r-project.org/web/packages/ggmosaic/vignettes/ggmosaic.html)
+
+##  Categórica/categórica
+
+### Ejemplo 1
+```{r}
+library(vcd)
+
+tbl = matrix(data=c(55, 45, 20, 30), nrow=2, ncol=2, byrow=T)
+dimnames(tbl) = list(Ciudad=c('Valencia', 'Madrid'), Sexo=c('H', 'M'))
+show(tbl)
+chi2 = chisq.test(tbl, correct=F)
+chi2
+
+c(chi2$statistic, chi2$p.value)
+assocstats(tbl)
+mosaicplot(tbl)
+
+
+
+```
+### Ejemplo 2
+```{r}
+load('./data/housetasks.Rdata')
+library(vcd)
+library(dplyr)
+
+# housetasks es un df, con as.table(as.matrix(df)) lo transformamos en una tabla, 
+# como las que devuelve la función table
+# 1. convert the data as a table
+dt <- as.table(as.matrix(housetasks))
+vcd::mosaic(dt)
+vcd::mosaic(dt,labeling= labeling_border(rot_labels = c(90,0,0,0), 
+                                 just_labels = c("left", 
+                                                 "left", 
+                                                 "left", 
+                                                 "right")))
+
+```
+
+### Ejemplo 3. Apdo 9.7.3. Exploratory Data Analysis using R.
+Se utiliza el conjunto de datos `msleep` incluido en `ggplot`. El conjunto recoge información de sueño en mamíferos.
+
+```{r}
+library(vcd)
+# Conjunto de datos  msleep incluido en ggplot
+# Consideramos 2 variables categóricas y determinamos su relación.
+
+tabla<-table(msleep$order,msleep$vore)
+
+print(tabla)
+chi2 = chisq.test(tabla, correct=F)
+chi2
+show('Resultados assocstats')
+# La función assocstats devuelve Chi cuadrado (aquí se llama Pearson, que no está  acotado. 
+#Dos alternativas acotadas son el coeficiente de contingencia y la V de Cramer, y la
+#significación estadística, si p<0.05 RECHAZAMOS LA HIPOTESIS NULA, SON INDEPENDIENTES,
+#indicando que existe dependencia entre las variables).
+# Un problema de este test es que nos indica si hay independencia o no pero no es una
+#medida del grado de asociación entre las variables categórias
+
+assocstats(tabla)
+# Podemos determinar si hay asociación entre variables categóricas y qué fracción de la
+#variable categórica y se puede explicar por la variable categórica X con la librería
+#GoodmanKrustal
+```
+
+
+```{r}
+library(GoodmanKruskal)
+GKtau(msleep$order,msleep$vore)
+# tauxy indica que el orden está relacionado con vore en un 62% pero, lo contrario es
+# decir determinar cuál es la alimentación (vore), según el orden solo está asociado en
+# un 22.3%
+```
+
+
+```{r}
+# Para muúltiples variables categóricas podemos obtener una matriz que determina la
+# relación con todas las combinaciones posibles.
+# La diagonal principal indica el número de valores distintos de cada factor y los
+# elementos fuera de diagonal la relación ente los factores. Por ejemplo genus 
+
+Varfactor<-select_if(msleep,is.character) %>%as.data.frame
+GKmat<-GKtauDataframe(Varfactor)
+GKmat
+plot(GKmat)
+
+```
+
+```{r}
+library(GoodmanKruskal)
+data<-dplyr::select(TitanicSurvival,survived,passengerClass) 
+
+tabla<-table(data)
+print(tabla)
+chi2 = chisq.test(tabla, correct=F)
+chi2
+show('Resultados assocstats')
+assocstats(tabla)
+
+# Observamos que no son independientes, hay una relación aunque no muy elevada 0.3/1
+```
+
+
+```{r}
+GKmat<-GKtauDataframe(data)
+GKmat
+plot(GKmat)
+GKtau(data$survived,data$passengerClass)
+# La clase está mas ligada a la supervivencia que al contrario pero en ambos casos la
+# relación es muy baja.
+```
+### Diagramas de mosaico
+https://rdrr.io/cran/ggmosaic/man/geom_mosaic.html
+
+devtools::install_github("haleyjeppson/ggmosaic")
+
+```{r}
+library(ggmosaic)
+data(titanic)
+
+ggplot(data = titanic) +
+  geom_mosaic(aes(x = product(Class), fill = Survived))
+# good practice: use the 'dependent' variable (or most important variable)
+# as fill variable
+```
+
+
+```{r}
+ggplot(data = titanic) +
+  geom_mosaic(aes(x = product(Class, Age), fill = Survived))
+
+ggplot(data = titanic) +
+  geom_mosaic(aes(x = product(Class), conds = product(Age), fill = Survived))
+
+```
+
+
+
+
+
+## Numérica/numérica
+
+### Ejemplo 1. Covarianza y correlación.
+Covarianza (sin normalizar), correlación (normalizado)
+```{r}
+x<-1:100
+y1<-sin(2*pi*0.1*x)
+y2<-log10(x)
+y3<-0.8*x+3
+
+z<-data.frame(x,y1,y2,y3)
+
+cov(z$x,z$y1,method = 'pearson')
+cov(z,method = 'pearson')
+
+cor(z$x,z$y1,method = 'pearson')
+cor(z,method = 'pearson')
+
+cor(z$x,z$y1,method = 'spearman')
+cor(z,method = 'spearman')
+
+ggplot(data=gather(z,key=Y,value=valor,-x),aes(x=x,y=valor))+geom_line()+
+  facet_wrap(~Y,ncol=3, scales = 'free_y')+
+  geom_smooth(method = 'lm',linetype = "dashed")
+
+```
+### Ejemplo 2. Covarianza y correlación.
+Determina la correlación y covarianza del conjunto de datos iris. 
+```{r}
+library(dplyr)
+cat('Covarianza Pearson\n')
+cov(select(iris,-Species))
+cat('\nCorrelación Pearson\n')
+cor(select(iris,-Species))
+cat('\nCovarianza Spearman\n')
+cov(select(iris,-Species),method = 'spearman')
+cat('\nCorrelación Spearman\n')
+cor(select(iris,-Species),method = 'spearman')
+pairs(iris[1:4])
+```
+## Matrices de correlación
+Dibuja la matrices de correlación del conjunto iris.
+Podemos usar `pairs` del paquete base o bien `ggcorr` y `ggpairs`
+
+ggcorr(data, palette = "RdYlGn", name = "rho", 
+       label = FALSE, label_color = "black",  ...)
+
++ data: a numerical (continuous) data matrix
++ palette: a ColorBrewer palette to be used for correlation coefficients. Default value is “RdYlGn”.
++ name: a character string used for legend title.
++ label: logical value. If TRUE, the correlation coefficients are displayed on the plot.
++ label_color: color to be used for the correlation coefficient
+
+ggpairs(data, columns = 1:ncol(data), title = "",  
+  axisLabels = "show", columnLabels = colnames(data[, columns]))
+
++ data: data set. Can have both numerical and categorical data.
++ columns: columns to be used for the plots. Default is all columns.
++ title: title for the graph
++ axisLabels: Allowed values are either “show” to display axisLabels, “internal” for labels in the diagonal plots, or “none” for no axis labels
++ columnLabels: label names to be displayed. Defaults to names of columns being used.
+
+```{r}
+pairs(iris[1:4])
+library(GGally)
+ggcorr(iris[1:4], palette = "RdBu", label = TRUE, method = c('everything','pearson'))
+ggpairs(iris[1:4])
+```
+
+
+
+# Missing data.
+## Missing completely at random / Missing not at random
+
+Observa cómo se modifican los estadísticos que caracterizan los datos cuando se eliminan de forma aleatoria y cuando no
+```{r}
+set.seed(333) # FIJAMOS LA SEMILLA PARA OBTENER RESULTADOS REPETIBLES
+# Ordenamos el conjunto
+x <- sort(rnorm(2000))
+mean(x)
+## [1] 0.01850065
+sd(x)
+## [1] 0.9931227
+
+# extraemos 150 muestras sin reemplazo, aleatoriamente
+# Esta es la opción Missing completely at Random
+xMCAR <- sample(x, size = 1500, replace = FALSE)
+mean(xMCAR)
+## 0.02104478
+sd(xMCAR)
+## [1] 0.9952448
+
+# Descartamos los últimos 50 datos (Estaban ORDENADOS !!!)
+xMNAR <- x[1:1500]
+mean(xMNAR)
+## [1] -0.4043208
+sd(xMNAR)
+## [1] 0.7168919
+```
+
+## Tratamiento de valores perdidos
+[https://www.statmethods.net/input/missingdata.html](https://www.statmethods.net/input/missingdata.html)
+
+Realizar curso Cleaning data in R, de Datacamp
+
+```{r}
+#Testing for Missing Values
+#is.na(x) # returns TRUE of x is missing
+y <- c(1,2,3,NA)
+is.na(y) # returns a vector (F F F T)
+
+#Recoding Values to Missing
+# recode 99 to missing for variable v1
+# select rows where v1 is 99 and recode column v1 
+mydata<-data.frame(v1=c(7,99,23),v2=1:3)
+mydata
+mydata$v1[mydata$v1==99] <- NA
+mydata
+
+#Excluding Missing Values from Analyses
+#Arithmetic functions on missing values yield missing values.
+
+x <- c(1,2,NA,3)
+mean(x) # returns NA
+mean(x, na.rm=TRUE) # returns 2
+
+#The function complete.cases() returns a logical vector indicating which cases are complete.
+
+# list rows of data that have missing values 
+mydata[!complete.cases(mydata),]
+
+#The function na.omit() returns the object with listwise deletion of missing values.
+
+# create new dataset without missing data 
+newdata <- na.omit(mydata)
+
+#Advanced Handling of Missing Data
+#Most modeling functions in R offer options for dealing with missing values. You can go
+# beyond pairwise of listwise deletion of missing values through methods such as
+# multiple imputation. Good implementations that can be accessed through R include
+# Amelia II, Mice, and mitools.
+```
+# Outliers
+[http://r-statistics.co/Outlier-Treatment-With-R.html](http://r-statistics.co/Outlier-Treatment-With-R.html)
+
+```{r}
+# Inject outliers into data.
+cars1 <- cars[1:30, ]  # original data
+cars_outliers <- data.frame(speed=c(19,19,20,20,20), dist=c(190, 186, 210, 220, 218))  # introduce outliers.
+cars2 <- rbind(cars1, cars_outliers)  # data with outliers.
+# Plot of data with outliers.
+
+par(mfrow=c(1, 2))
+
+ggplot(cars2,aes(x=speed,y=dist))+geom_point(shape='*',size=5)+labs(title="With Outliers")+geom_smooth(method = 'lm',se = FALSE,color='red')+coord_cartesian(xlim = c(min(cars2$speed),max(cars2$speed)),ylim = c(min(cars2$dist),max(cars2$dist)))
+
+
+ggplot(cars1,aes(x=speed,y=dist))+geom_point(shape='*',size=5)+labs(title="Without Outliers")+geom_smooth(method = 'lm',se = FALSE,color='red')+coord_cartesian(xlim = c(min(cars2$speed),max(cars2$speed)),ylim = c(min(cars2$dist),max(cars2$dist)))
+
+```
+## Detección univariante con boxplot
+La función boxplot devuelve el valor de los outliers.
+Para multiples variables lo más lógico es utilizar métodos más complejos (aproximación multivariante) que analicen las variables globalmente no una a una.
+```{r}
+#url <- "http://rstatistics.net/wp-content/uploads/2015/09/ozone.csv"  
+# alternate source:  
+url<- "https://raw.githubusercontent.com/selva86/datasets/master/ozone.csv"
+inputData <- read.csv(url)  # import data
+
+outlier_values <- boxplot.stats(inputData$pressure_height)$out  # outlier values.
+
+ggplot(data=inputData,aes(y=pressure_height))+geom_boxplot()+labs(subtitle = paste("Outliers: ",paste(outlier_values, collapse=", ")))
+
+
+```
+
+
+
+
+
